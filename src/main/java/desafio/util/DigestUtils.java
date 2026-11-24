@@ -2,7 +2,6 @@ package desafio.util;
 
 import desafio.exception.SignatureProcessingException;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -13,7 +12,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
-public final class Utils {
+public final class DigestUtils {
 
     public static final String ALGORITHM = "SHA-512";
 
@@ -25,7 +24,7 @@ public final class Utils {
         return HexFormat.of().formatHex(digest(content));
     }
 
-    // useful for api stuff
+    // good for visibility
     public String digestHex(Path file) throws IOException {
         MessageDigest md = newDigest();
         try (InputStream in = new DigestInputStream(Files.newInputStream(file), md)) {
