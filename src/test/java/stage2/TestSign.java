@@ -14,9 +14,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static utils.TestArtifacts.OUTPUT_DIR;
+import static utils.TestArtifacts.bytes;
 
 @SpringBootTest(classes = Application.class, webEnvironment = SpringBootTest.WebEnvironment.NONE)
 public class TestSign {
@@ -35,8 +36,8 @@ public class TestSign {
 
     @BeforeAll
     static void loadArtifacts() throws Exception {
-        doc = Files.readAllBytes(resource("artifacts/files/doc.txt"));
-        pkcs12 = Files.readAllBytes(resource("artifacts/pkcs12/certificado_teste_hub.pfx"));
+        doc = bytes("artifacts/files/doc.txt");
+        pkcs12 = bytes("artifacts/pkcs12/certificado_teste_hub.pfx");
     }
 
     @Test
@@ -46,8 +47,8 @@ public class TestSign {
         byte[] signature = Signer.signAttached(doc, credentials);
 
         // This is the step were we write it onto disc
-        Path out = Paths.get("target", "signatures", "doc.p7s");
-        Files.createDirectories(out.getParent());
+        Files.createDirectories(OUTPUT_DIR);
+        Path out = OUTPUT_DIR.resolve("doc.p7s");
         Files.write(out, signature);
         assertTrue(Files.size(out) > 0);
 
@@ -63,11 +64,5 @@ public class TestSign {
         assertTrue(info.getEncryptionAlgOID().startsWith(RSA_OID_PREFIX));
 
         assertTrue(info.verify(new JcaSimpleSignerInfoVerifierBuilder().build(credentials.certificate())));
-    }
-
-    private static Path resource(String name) throws Exception {
-        var url = TestSign.class.getClassLoader().getResource(name);
-        assertNotNull(url);
-        return Paths.get(url.toURI());
     }
 }
