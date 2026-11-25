@@ -2,6 +2,10 @@ package desafio.crypto;
 
 import desafio.exception.InvalidInputException;
 import desafio.exception.SignatureProcessingException;
+import org.bouncycastle.asn1.cms.Attribute;
+import org.bouncycastle.asn1.cms.AttributeTable;
+import org.bouncycastle.asn1.cms.CMSAttributes;
+import org.bouncycastle.asn1.x509.Time;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
@@ -11,40 +15,35 @@ import org.bouncycastle.cms.CMSSignerDigestMismatchException;
 import org.bouncycastle.cms.SignerInformation;
 import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.operator.DefaultAlgorithmNameFinder;
+import org.bouncycastle.operator.DigestCalculator;
 import org.bouncycastle.operator.OperatorCreationException;
+import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.Provider;
-import java.security.cert.CertPathBuilder;
-import java.security.cert.CertPathBuilderException;
-import java.security.cert.CertStore;
-import java.security.cert.CollectionCertStoreParameters;
-import java.security.cert.PKIXBuilderParameters;
-import java.security.cert.TrustAnchor;
-import java.security.cert.X509CertSelector;
-import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.security.cert.*;
+import java.util.*;
 
 public final class Verifier {
 
+    private static final Provider BC = new BouncyCastleProvider();
 
     private Verifier() {
     }
 
-
     public static VerificationResult verify(byte[] cms, List<X509Certificate> chainArtifacts) {
         CMSSignedData signed = parse(cms);
         if (signed.getSignedContent() == null) {
-            throw new InvalidInputException("Signature is not attached.");
+            throw new InvalidInputException("A assinatura não contém o conteúdo anexado (attached).");
         }
 
         List<SignerInformation> signers = List.copyOf(signed.getSignerInfos().getSigners());
         if (signers.isEmpty()) {
-            throw new InvalidInputException("Signature has no signer information.");
+            throw new InvalidInputException("A assinatura não possui nenhum signatário.");
         }
 
         try {
@@ -62,35 +61,62 @@ public final class Verifier {
 
             CertificateInfo info = firstSignerCert == null ? null : CertificateInfo.from(firstSignerCert);
             String failure = firstSignerCert == null
-                    ? "Signature has no reference to signing certificate."
+                    ? "Certificado do signatário não está embutido na assinatura nem nos artefatos fornecidos."
                     : checkTrust(firstSignerCert, embedded, chainArtifacts);
 
-            return new VerificationResult(integrity, failure == null, failure, info);
-        } catch (GeneralSecurityException | CMSException | OperatorCreationException e) {
-            throw new SignatureProcessingException("Failure while verifying signature.", e);
+            return new VerificationResult(integrity, failure == null, failure, info, detailsOf(signed, signers.get(0)));
+        } catch (GeneralSecurityException | CMSException | OperatorCreationException | IOException e) {
+            throw new SignatureProcessingException("Falha ao verificar a assinatura CMS.", e);
         }
+    }
+
+    private static SignatureDetails detailsOf(CMSSignedData signed, SignerInformation signer)
+            throws OperatorCreationException, IOException {
+        byte[] content = (byte[]) signed.getSignedContent().getContent();
+        DigestCalculator calculator = new JcaDigestCalculatorProviderBuilder().setProvider(BC).build()
+                .get(signer.getDigestAlgorithmID());
+        try (OutputStream out = calculator.getOutputStream()) {
+            out.write(content);
+        }
+        return new SignatureDetails(
+                signingTimeOf(signer),
+                HexFormat.of().formatHex(calculator.getDigest()),
+                new DefaultAlgorithmNameFinder().getAlgorithmName(signer.getDigestAlgorithmID()));
+    }
+
+    private static java.time.Instant signingTimeOf(SignerInformation signer) {
+        AttributeTable attributes = signer.getSignedAttributes();
+        Attribute attribute = attributes == null ? null : attributes.get(CMSAttributes.signingTime);
+        if (attribute == null) {
+            return null;
+        }
+        return Time.getInstance(attribute.getAttrValues().getObjectAt(0)).getDate().toInstant();
     }
 
     private static CMSSignedData parse(byte[] cms) {
         try {
             return new CMSSignedData(cms);
         } catch (CMSException e) {
-            throw new InvalidInputException("Invalid or corrupted CMS file file", e);
+            throw new InvalidInputException("Assinatura CMS inválida ou corrompida.", e);
         }
     }
 
     private static boolean verifySigner(SignerInformation signer, X509Certificate cert)
             throws CMSException, OperatorCreationException {
         try {
-            return signer.verify(new JcaSimpleSignerInfoVerifierBuilder().build(cert));
+            return signer.verify(new JcaSimpleSignerInfoVerifierBuilder().setProvider(BC).build(cert));
         } catch (CMSSignerDigestMismatchException e) {
-            return false; // hash is not what was expected
+            return false; // o conteúdo foi alterado: o hash não bate com o assinado
         }
     }
 
+    /**
+     * Procura primeiro entre os certificados embutidos na assinatura e depois nos artefatos fornecidos.
+     */
     private static X509Certificate findSignerCertificate(SignerInformation signer,
                                                          List<X509Certificate> embedded,
-                                                         List<X509Certificate> chainArtifacts) throws GeneralSecurityException {
+                                                         List<X509Certificate> chainArtifacts)
+            throws GeneralSecurityException {
         List<X509Certificate> candidates = new ArrayList<>(embedded);
         candidates.addAll(chainArtifacts);
         for (X509Certificate candidate : candidates) {
@@ -111,11 +137,14 @@ public final class Verifier {
         return certs;
     }
 
+    /**
+     * @return {@code null} se o certificado é confiável; caso contrário, o motivo.
+     */
     private static String checkTrust(X509Certificate signerCert,
                                      List<X509Certificate> embedded,
                                      List<X509Certificate> chainArtifacts) throws GeneralSecurityException {
         Set<TrustAnchor> anchors = new HashSet<>();
-        List<X509Certificate> pool = new ArrayList<>(embedded);
+        List<X509Certificate> pool = new ArrayList<>(embedded); // só ajudam a montar o caminho, nunca são âncora
         pool.add(signerCert);
         for (X509Certificate c : chainArtifacts) {
             if (c.getSubjectX500Principal().equals(c.getIssuerX500Principal())) {
@@ -125,7 +154,7 @@ public final class Verifier {
             }
         }
         if (anchors.isEmpty()) {
-            return "No AC certificate found.";
+            return "Nenhuma autoridade certificadora raiz (autoassinada) foi fornecida.";
         }
 
         X509CertSelector target = new X509CertSelector();
@@ -133,15 +162,15 @@ public final class Verifier {
 
         try {
             PKIXBuilderParameters params = new PKIXBuilderParameters(anchors, target);
-            params.setRevocationEnabled(false);
+            params.setRevocationEnabled(false); // não há CRL/OCSP nos artefatos do desafio
             params.addCertStore(CertStore.getInstance("Collection", new CollectionCertStoreParameters(pool)));
             CertPathBuilder.getInstance("PKIX").build(params);
             return null;
         } catch (CertPathBuilderException e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
-            return "Invalid cert path: " + cause.getMessage();
+            return "Caminho de certificação inválido: " + cause.getMessage();
         } catch (InvalidAlgorithmParameterException e) {
-            return "Invalid algorithm parameters: " + e.getMessage();
+            return "Parâmetros de validação inválidos: " + e.getMessage();
         }
     }
 }
