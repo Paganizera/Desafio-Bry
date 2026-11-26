@@ -1,6 +1,5 @@
 package desafio.crypto;
 
-import desafio.crypto.SignerCredentials;
 import desafio.exception.InvalidInputException;
 import desafio.exception.InvalidKeystoreException;
 import desafio.exception.SignatureProcessingException;
@@ -27,7 +26,9 @@ import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateNotYetValidException;
 import java.security.cert.X509Certificate;
 
-
+/**
+ * Classe responsável pelo processo mecânica da geração de uma assinatura
+ */
 public class Signer {
 
     public static final String SIGNATURE_ALGORITHM = "SHA512withRSA";
@@ -63,19 +64,16 @@ public class Signer {
             CMSSignedData signed = generator.generate(message, true); // true = attached
             return signed.getEncoded();
         } catch (OperatorCreationException | CMSException | IOException | GeneralSecurityException e) {
-            throw new SignatureProcessingException("Não foi possível gerar a assinatura CMS.", e);
+            throw new SignatureProcessingException("An error occurred while signing.", e);
         }
     }
 
-    /**
-     * Assinar com certificado fora da validade não é bloqueado, mas a verificação futura o rejeitará.
-     */
     private static void warnIfOutsideValidity(X509Certificate cert) {
         try {
             cert.checkValidity();
         } catch (CertificateExpiredException | CertificateNotYetValidException e) {
-            log.warn("O certificado do signatário está fora do período de validade ({}); "
-                    + "a assinatura será gerada, mas não será considerada confiável na verificação.", e.getMessage());
+            log.warn("Signer certificate is outside its validity period ({}); signature will be generated, "
+                    + "but trust validation will reject it.", e.getMessage());
         }
     }
 }

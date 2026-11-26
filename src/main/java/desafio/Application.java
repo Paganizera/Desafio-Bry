@@ -9,8 +9,9 @@ import java.security.Security;
 @SpringBootApplication
 public class Application {
 
-    // Ensures the right provider is currently active
     static {
+        // Essa propriedade permite reconstrução da cadeia de confiança por AIAs
+        System.setProperty("com.sun.security.enableAIAcaIssuers", "true");
         if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
             Security.addProvider(new BouncyCastleProvider());
         }
@@ -19,5 +20,4 @@ public class Application {
     public static void main(String[] args) {
         SpringApplication.run(Application.class, args);
     }
-
 }

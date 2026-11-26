@@ -19,6 +19,8 @@ import org.bouncycastle.operator.DefaultAlgorithmNameFinder;
 import org.bouncycastle.operator.DigestCalculator;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -28,22 +30,29 @@ import java.security.Provider;
 import java.security.cert.*;
 import java.util.*;
 
+/**
+ * Realiza as etapas de verificação da assinatura
+ */
 public final class Verifier {
 
     private static final Provider BC = new BouncyCastleProvider();
+    private static final Logger log = LoggerFactory.getLogger(Verifier.class);
 
     private Verifier() {
     }
 
+    /**
+     * Valida integridade, extrai metadados do assinante e verifica a cadeia de confiança relacionada à assinatura
+     */
     public static VerificationResult verify(byte[] cms, List<X509Certificate> chainArtifacts) {
         CMSSignedData signed = parse(cms);
         if (signed.getSignedContent() == null) {
-            throw new InvalidInputException("A assinatura não contém o conteúdo anexado (attached).");
+            throw new InvalidInputException("Signature not in attached format.");
         }
 
         List<SignerInformation> signers = List.copyOf(signed.getSignerInfos().getSigners());
         if (signers.isEmpty()) {
-            throw new InvalidInputException("A assinatura não possui nenhum signatário.");
+            throw new InvalidInputException("Signature has no signer attached.");
         }
 
         try {
@@ -61,12 +70,16 @@ public final class Verifier {
 
             CertificateInfo info = firstSignerCert == null ? null : CertificateInfo.from(firstSignerCert);
             String failure = firstSignerCert == null
-                    ? "Certificado do signatário não está embutido na assinatura nem nos artefatos fornecidos."
+                    ? "There is no reference do signer's certificate."
                     : checkTrust(firstSignerCert, embedded, chainArtifacts);
+
+            if (failure != null) {
+                log.debug("Certificate trust validation failed: {}", failure);
+            }
 
             return new VerificationResult(integrity, failure == null, failure, info, detailsOf(signed, signers.get(0)));
         } catch (GeneralSecurityException | CMSException | OperatorCreationException | IOException e) {
-            throw new SignatureProcessingException("Falha ao verificar a assinatura CMS.", e);
+            throw new SignatureProcessingException("Failure to verify signature.", e);
         }
     }
 
@@ -97,7 +110,7 @@ public final class Verifier {
         try {
             return new CMSSignedData(cms);
         } catch (CMSException e) {
-            throw new InvalidInputException("Assinatura CMS inválida ou corrompida.", e);
+            throw new InvalidInputException("Invalid or currupted signature file.", e);
         }
     }
 
@@ -106,13 +119,12 @@ public final class Verifier {
         try {
             return signer.verify(new JcaSimpleSignerInfoVerifierBuilder().setProvider(BC).build(cert));
         } catch (CMSSignerDigestMismatchException e) {
-            return false; // o conteúdo foi alterado: o hash não bate com o assinado
+            log.debug("CMS content digest mismatch detected during signature verification.");
+            return false; // Encapsulated content was modified after signing
         }
     }
 
-    /**
-     * Procura primeiro entre os certificados embutidos na assinatura e depois nos artefatos fornecidos.
-     */
+
     private static X509Certificate findSignerCertificate(SignerInformation signer,
                                                          List<X509Certificate> embedded,
                                                          List<X509Certificate> chainArtifacts)
@@ -138,13 +150,13 @@ public final class Verifier {
     }
 
     /**
-     * @return {@code null} se o certificado é confiável; caso contrário, o motivo.
+     * Constrói e valida o caminho de certificação PKIX até uma âncora.
      */
     private static String checkTrust(X509Certificate signerCert,
                                      List<X509Certificate> embedded,
                                      List<X509Certificate> chainArtifacts) throws GeneralSecurityException {
         Set<TrustAnchor> anchors = new HashSet<>();
-        List<X509Certificate> pool = new ArrayList<>(embedded); // só ajudam a montar o caminho, nunca são âncora
+        List<X509Certificate> pool = new ArrayList<>(embedded);
         pool.add(signerCert);
         for (X509Certificate c : chainArtifacts) {
             if (c.getSubjectX500Principal().equals(c.getIssuerX500Principal())) {
@@ -154,7 +166,7 @@ public final class Verifier {
             }
         }
         if (anchors.isEmpty()) {
-            return "Nenhuma autoridade certificadora raiz (autoassinada) foi fornecida.";
+            return "No root ac provided.";
         }
 
         X509CertSelector target = new X509CertSelector();
@@ -162,15 +174,16 @@ public final class Verifier {
 
         try {
             PKIXBuilderParameters params = new PKIXBuilderParameters(anchors, target);
-            params.setRevocationEnabled(false); // não há CRL/OCSP nos artefatos do desafio
+            // desabilitamos análise de revogação em decorrência do escopo solicitado
+            params.setRevocationEnabled(false);
             params.addCertStore(CertStore.getInstance("Collection", new CollectionCertStoreParameters(pool)));
             CertPathBuilder.getInstance("PKIX").build(params);
             return null;
         } catch (CertPathBuilderException e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
-            return "Caminho de certificação inválido: " + cause.getMessage();
+            return "Invalid certpath: " + cause.getMessage();
         } catch (InvalidAlgorithmParameterException e) {
-            return "Parâmetros de validação inválidos: " + e.getMessage();
+            return "Invalid validation parameters: " + e.getMessage();
         }
     }
 }

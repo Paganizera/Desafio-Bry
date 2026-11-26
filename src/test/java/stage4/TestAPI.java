@@ -1,7 +1,7 @@
 package stage4;
 
 import desafio.Application;
-import desafio.util.DigestUtils;
+import desafio.util.ChallengeUtils;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -105,7 +105,7 @@ public class TestAPI {
                 .andExpect(jsonPath("$.status").value("VALIDO"))
                 .andExpect(jsonPath("$.infos.nomeSignatario").value("HUB2 TESTES"))
                 .andExpect(jsonPath("$.infos.dataAssinatura").exists())
-                .andExpect(jsonPath("$.infos.hashDocumento").value(new DigestUtils().digestHex(doc)))
+                .andExpect(jsonPath("$.infos.hashDocumento").value(new ChallengeUtils().digestHex(doc)))
                 .andExpect(jsonPath("$.infos.algoritmoHash").exists())
                 .andExpect(jsonPath("$.infos.certificado.serialNumberHex").exists())
                 .andExpect(jsonPath("$.infos.cadeiaConfiavel").exists());

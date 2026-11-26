@@ -1,9 +1,8 @@
 package desafio.service;
 
-import desafio.crypto.CertificateLoader;
 import desafio.exception.InvalidInputException;
+import desafio.util.ChallengeUtils;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
@@ -14,24 +13,43 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * Componente responsável por carregar as Ancoras de confiança
+ */
 @Component
 public class TrustChainProvider {
 
-    private static final Logger log = LoggerFactory.getLogger(TrustChainProvider.class);
-    private static final String PATTERN = "classpath*:artifacts/chain/*.cer";
+    private static final List<String> PATTERNS = List.of(
+            "classpath*:artifacts/chain/*.cer",
+            "classpath*:cadeia/*.cer"
+    );
 
     private final List<X509Certificate> certificates;
 
-    public TrustChainProvider() {
+    public TrustChainProvider(Logger log) {
         Set<X509Certificate> loaded = new LinkedHashSet<>();
-        try {
-            for (Resource resource : new PathMatchingResourcePatternResolver().getResources(PATTERN)) {
-                try {
-                    loaded.add(CertificateLoader.load(resource.getContentAsByteArray()));
-                } catch (InvalidInputException | IOException ignored) {}
+        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
+
+        for (String pattern : PATTERNS) {
+            try {
+                for (Resource resource : resolver.getResources(pattern)) {
+                    try {
+                        X509Certificate cert = ChallengeUtils.load(resource.getContentAsByteArray());
+                        loaded.add(cert);
+                        log.debug("Loaded trust chain certificate '{}' (subject='{}').",
+                                resource.getFilename(), cert.getSubjectX500Principal());
+                    } catch (InvalidInputException | IOException e) {
+                        log.warn("Skipping invalid or unreadable certificate resource '{}': {}",
+                                resource.getFilename(), e.getMessage());
+                    }
+                }
+            } catch (IOException e) {
+                log.warn("Failed to scan classpath for pattern '{}': {}", pattern, e.getMessage());
             }
-        } catch (IOException ignored) {}
+        }
+
         this.certificates = List.copyOf(loaded);
+        log.info("TrustChainProvider initialized with {} certificate(s).", this.certificates.size());
     }
 
     public List<X509Certificate> certificates() {

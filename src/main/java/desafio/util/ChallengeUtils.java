@@ -1,7 +1,9 @@
 package desafio.util;
 
+import desafio.exception.InvalidInputException;
 import desafio.exception.SignatureProcessingException;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -10,9 +12,12 @@ import java.nio.file.Path;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.HexFormat;
 
-public final class DigestUtils {
+public final class ChallengeUtils {
 
     public static final String ALGORITHM = "SHA-512";
 
@@ -24,7 +29,7 @@ public final class DigestUtils {
         return HexFormat.of().formatHex(digest(content));
     }
 
-    // good for visibility
+
     public String digestHex(Path file) throws IOException {
         MessageDigest md = newDigest();
         try (InputStream in = new DigestInputStream(Files.newInputStream(file), md)) {
@@ -40,4 +45,14 @@ public final class DigestUtils {
             throw new SignatureProcessingException("Algoritmo " + ALGORITHM + " indisponível.", e);
         }
     }
+
+    public static X509Certificate load(byte[] encoded) {
+        try {
+            CertificateFactory factory = CertificateFactory.getInstance("X.509");
+            return (X509Certificate) factory.generateCertificate(new ByteArrayInputStream(encoded));
+        } catch (CertificateException e) {
+            throw new InvalidInputException("Invalid x509 certificate.", e);
+        }
+    }
+
 }

@@ -1,15 +1,13 @@
 package stage3;
 
 import desafio.Application;
-import desafio.crypto.CertificateLoader;
-import desafio.crypto.PKCS12Loader;
-import desafio.crypto.Verifier;
-import desafio.crypto.SignerCredentials;
-import desafio.crypto.Signer;
-import desafio.crypto.VerificationResult;
+import desafio.crypto.*;
+import desafio.util.ChallengeUtils;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -18,11 +16,12 @@ import java.security.cert.X509Certificate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static utils.TestArtifacts.OUTPUT_DIR;
-import static utils.TestArtifacts.bytes;
+import static utils.TestArtifacts.*;
 
 @SpringBootTest(classes = Application.class, webEnvironment = SpringBootTest.WebEnvironment.NONE)
 public class TestVerify {
+
+    private static final Logger log = LoggerFactory.getLogger(TestVerify.class);
 
     @Value("${desafio.bry.pkcs12.alias}")
     private String alias;
@@ -41,8 +40,8 @@ public class TestVerify {
         doc = bytes("artifacts/files/doc.txt");
         pkcs12 = bytes("artifacts/pkcs12/certificado_teste_hub.pfx");
         chain = List.of(
-                CertificateLoader.load(bytes("artifacts/chain/ac_raiz_bry_v3.cer")),
-                CertificateLoader.load(bytes("artifacts/chain/ac_bry_servidor_seguro_v3.cer")));
+                ChallengeUtils.load(bytes("artifacts/chain/ac_raiz_bry_v3.cer")),
+                ChallengeUtils.load(bytes("artifacts/chain/ac_bry_servidor_seguro_v3.cer")));
     }
 
     @BeforeEach
@@ -59,6 +58,16 @@ public class TestVerify {
         assertNotNull(result.signer());
         assertTrue(result.integrityValid());
         assertTrue(result.trusted(), result.trustFailureReason());
+
+        // Print signer certificate metadata as required by Stage 3
+        log.info("Signer Certificate Details -> CN='{}', Subject='{}', Issuer='{}', Serial='{}', ValidFrom={}, ValidUntil={}, SHA256='{}'",
+                result.signer().commonName(),
+                result.signer().subject(),
+                result.signer().issuer(),
+                result.signer().serialNumberHex(),
+                result.signer().notBefore(),
+                result.signer().notAfter(),
+                result.signer().sha256Fingerprint());
     }
 
     @Test
@@ -91,18 +100,5 @@ public class TestVerify {
         assertTrue(result.integrityValid());
         assertFalse(result.trusted());
         assertNotNull(result.trustFailureReason());
-    }
-
-    private static int indexOf(byte[] data, byte[] pattern) {
-        outer:
-        for (int i = 0; i <= data.length - pattern.length; i++) {
-            for (int j = 0; j < pattern.length; j++) {
-                if (data[i + j] != pattern[j]) {
-                    continue outer;
-                }
-            }
-            return i;
-        }
-        return -1;
     }
 }

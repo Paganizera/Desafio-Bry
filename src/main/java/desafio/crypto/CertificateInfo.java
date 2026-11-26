@@ -1,6 +1,7 @@
 package desafio.crypto;
 
 import desafio.exception.SignatureProcessingException;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x500.style.IETFUtils;
@@ -14,15 +15,19 @@ import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.util.HexFormat;
 
-public record CertificateInfo(String commonName,
-                              String subject,
-                              String issuer,
-                              String serialNumberHex,
-                              Instant notBefore,
-                              Instant notAfter,
-                              String signatureAlgorithm,
-                              String publicKeyAlgorithm,
-                              String sha256Fingerprint) {
+
+@Schema(description = "Metadados extraídos do certificado do signatário.")
+public record CertificateInfo(
+        @Schema String commonName,
+        @Schema String subject,
+        @Schema String issuer,
+        @Schema String serialNumberHex,
+        @Schema Instant notBefore,
+        @Schema Instant notAfter,
+        @Schema String signatureAlgorithm,
+        @Schema String publicKeyAlgorithm,
+        @Schema String sha256Fingerprint) {
+
 
     public static CertificateInfo from(X509Certificate cert) {
         return new CertificateInfo(
@@ -42,7 +47,7 @@ public record CertificateInfo(String commonName,
             RDN[] cn = new JcaX509CertificateHolder(cert).getSubject().getRDNs(BCStyle.CN);
             return cn.length == 0 ? null : IETFUtils.valueToString(cn[0].getFirst().getValue());
         } catch (CertificateEncodingException e) {
-            throw new SignatureProcessingException("Não foi possível ler o titular do certificado.", e);
+            throw new SignatureProcessingException("Couldn't extract commonName.", e);
         }
     }
 
@@ -51,7 +56,7 @@ public record CertificateInfo(String commonName,
             return HexFormat.of().withUpperCase()
                     .formatHex(MessageDigest.getInstance("SHA-256").digest(cert.getEncoded()));
         } catch (NoSuchAlgorithmException | CertificateEncodingException e) {
-            throw new SignatureProcessingException("Não foi possível calcular a impressão digital do certificado.", e);
+            throw new SignatureProcessingException("Failure occurred while hashing.", e);
         }
     }
 }
