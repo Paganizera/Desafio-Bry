@@ -1,0 +1,217 @@
+{
+  "info": {
+    "_postman_id": "8c4b9e2a-3f1d-4b8e-9a7c-1d2e3f4a5b6c",
+    "name": "Desafio Back-End Java - Assinatura Digital CMS",
+    "description": "Collection para testar os endpoints do desafio.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "pkcs12Password",
+      "value": "bry123456",
+      "type": "string"
+    },
+    {
+      "key": "lastSignatureBase64",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Assinar Documento (POST /signature/)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200 OK', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response body contains non-empty Base64 CMS', function () {",
+              "    const body = pm.response.text();",
+              "    pm.expect(body).to.be.a('string').and.not.be.empty;",
+              "    pm.collectionVariables.set('lastSignatureBase64', body);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "document",
+              "type": "file",
+              "src": "src/test/resources/artifacts/files/doc.txt",
+              "description": "Documento original a ser assinado (doc.txt)"
+            },
+            {
+              "key": "pkcs12",
+              "type": "file",
+              "src": "src/test/resources/artifacts/pkcs12/certificado_teste_hub.pfx",
+              "description": "Arquivo PKCS#12 contendo chave privada e certificado"
+            },
+            {
+              "key": "password",
+              "value": "{{pkcs12Password}}",
+              "type": "text",
+              "description": "Senha do arquivo PKCS#12"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/signature/",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "signature",
+            ""
+          ]
+        },
+        "description": "Envia documento, certificado PKCS#12 e senha via multipart/form-data e recebe a assinatura CMS attached codificada em Base64."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Verificar Assinatura (POST /verify/)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200 OK', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response matches expected JSON schema and VALIDO status', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.status).to.eql('VALIDO');",
+              "    pm.expect(json.infos).to.be.an('object');",
+              "    pm.expect(json.infos.nomeSignatario).to.eql('HUB2 TESTES');",
+              "    pm.expect(json.infos.dataAssinatura).to.be.a('string');",
+              "    pm.expect(json.infos.hashDocumento).to.be.a('string').with.lengthOf(128);",
+              "    pm.expect(json.infos.algoritmoHash).to.be.a('string');",
+              "    pm.expect(json.infos.cadeiaConfiavel).to.be.a('boolean');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "signature",
+              "type": "file",
+              "src": "src/main/resources/output/doc.p7s.b64",
+              "description": "Arquivo contendo a assinatura CMS attached codificada em Base64"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/verify/",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "verify",
+            ""
+          ]
+        },
+        "description": "Envia arquivo contendo assinatura CMS attached em Base64 e verifica integridade, metadados e cadeia de confiança."
+      },
+      "response": []
+    },
+    {
+      "name": "3. Erro - Assinar com Senha Incorreta (400 Bad Request)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 400 Bad Request', function () {",
+              "    pm.response.to.have.status(400);",
+              "});",
+              "pm.test('Error payload contains message', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.status).to.eql(400);",
+              "    pm.expect(json.message).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "document",
+              "type": "file",
+              "src": "src/test/resources/artifacts/files/doc.txt"
+            },
+            {
+              "key": "pkcs12",
+              "type": "file",
+              "src": "src/test/resources/artifacts/pkcs12/certificado_teste_hub.pfx"
+            },
+            {
+              "key": "password",
+              "value": "senha-incorreta",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/signature/",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "signature",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "4. Documentação OpenAPI JSON (GET /v3/api-docs)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/v3/api-docs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v3",
+            "api-docs"
+          ]
+        },
+        "description": "Obtém a especificação OpenAPI 3 gerada automaticamente em português."
+      },
+      "response": []
+    }
+  ]
+}
